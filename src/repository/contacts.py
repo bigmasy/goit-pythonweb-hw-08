@@ -7,6 +7,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.database.models import Contact
 from src.schemas import ContactUpdate, ContactCreate
 
+from sqlalchemy.exc import IntegrityError
+
+class DuplicateContactError(Exception):
+    def __init__(self, message: str):
+        self.message = message
+        super().__init__(self.message)
+
 class ContactRepository:
     def __init__(self, session: AsyncSession):
         self.db = session
@@ -24,17 +31,41 @@ class ContactRepository:
     async def create_contact(self, body: ContactCreate) -> Contact:
         contact = Contact(**body.model_dump())
         self.db.add(contact)
-        await self.db.commit()
-        await self.db.refresh(contact)
+        try:
+            await self.db.commit()
+            await self.db.refresh(contact)
+            return contact
+        except IntegrityError as e:
+            await self.db.rollback()
+            error_message = str(e.orig)
+            if 'duplicate key value violates unique constraint' in error_message:
+                if 'contacts_email_key' in error_message:
+                    raise DuplicateContactError("Contact with this email already exists.")
+                if 'contacts_phone_number_key' in error_message:
+                    raise DuplicateContactError("Contact with this phone number already exists.")
+            raise e
+
         return contact
     
     async def update_contact(self,contact_id: int, body: ContactUpdate) -> Contact | None:
         contact = await self.get_contact_by_id(contact_id)
         if contact:
-            for key, value in body.dict().items():
+            update_data = body.model_dump(exclude_unset=True)
+            for key, value in update_data.items():
                 setattr(contact, key, value)
-            await self.db.commit()
-            await self.db.refresh(contact)
+            try:
+                await self.db.commit()
+                await self.db.refresh(contact)
+            except IntegrityError as e:
+                await self.db.rollback()
+                error_message = str(e.orig)
+                if 'duplicate key value violates unique constraint' in error_message:
+                    if 'contacts_email_key' in error_message:
+                        raise DuplicateContactError("Contact with this email already exists.")
+                    if 'contacts_phone_number_key' in error_message:
+                        raise DuplicateContactError("Contact with this phone number already exists.")
+                raise e
+
         return contact
     
     async def remove_contact(self, contact_id: int) -> Contact | None:

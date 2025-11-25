@@ -1,7 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
-from src.repository.contacts import ContactRepository
+from src.repository.contacts import ContactRepository, DuplicateContactError
 from src.schemas import ContactUpdate, ContactCreate
 
 class ContactService:
@@ -15,10 +15,16 @@ class ContactService:
         return await self.contact_repository.get_contact_by_id(contact_id)
     
     async def create_contact(self, body: ContactCreate):
-        return await self.contact_repository.create_contact(body)
+        try:
+            return await self.contact_repository.create_contact(body)
+        except DuplicateContactError as e:
+            raise e
     
     async def update_contact(self, contact_id: int, body: ContactUpdate):
-        return await self.contact_repository.update_contact(contact_id=contact_id, body=body)
+        try:
+            return await self.contact_repository.update_contact(contact_id, body)
+        except DuplicateContactError as e:
+            raise e
 
     async def remove_contact(self, contact_id: int):
         return await self.contact_repository.remove_contact(contact_id)
